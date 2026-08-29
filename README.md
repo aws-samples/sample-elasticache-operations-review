@@ -1,6 +1,6 @@
 # Amazon ElastiCache Operations Review — AI Agent Skill for AWS Well-Architected Reviews
 
-Review the health of an **Amazon ElastiCache** fleet — **Valkey, Redis OSS, and Memcached**, on both **serverless and node-based** clusters — against **AWS Well-Architected** best practices, and get a prioritized, shareable report. Deterministic Python scripts collect **Amazon CloudWatch** metrics and **AWS Cost Explorer** data and run mechanical configuration checks; an **AI agent** (for example, Claude Code) interprets the results — prioritizing findings, explaining root causes, estimating cost savings, and generating remediation guidance.
+Review the health of an **Amazon ElastiCache** fleet — **Valkey and Redis OSS**, on both **serverless and node-based** clusters — against **AWS Well-Architected** best practices, and get a prioritized, shareable report. Deterministic Python scripts collect **Amazon CloudWatch** metrics and **AWS Cost Explorer** data and run mechanical configuration checks; an **AI agent** (for example, Claude Code) interprets the results — prioritizing findings, explaining root causes, estimating cost savings, and generating remediation guidance.
 
 It ships as an installable **agent skill** (`SKILL.md`), runs strictly **read-only**, and works **offline** against a bundled example fleet, so you can try it without an AWS account.
 
@@ -261,8 +261,10 @@ No — it is strictly read-only. The scripts only call `Describe*` / `List*` /
 over-privileged profile (see [Required IAM Permissions](#required-iam-permissions)).
 
 **Which engines and deployment types are supported?**
-Valkey, Redis OSS, and Memcached — on both serverless and node-based (replication
-group) clusters.
+Valkey and Redis OSS — on both serverless and node-based (replication group)
+clusters. Memcached is not covered: discovery enumerates replication groups and
+serverless caches, and the configuration checks assume Redis/Valkey semantics
+(RBAC/AUTH, Multi-AZ, replicas, backups).
 
 **Can I try it without an AWS account?**
 Yes. `python3 scripts/make_example_fleet.py --output examples/` generates a synthetic
