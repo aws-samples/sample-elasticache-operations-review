@@ -12,21 +12,44 @@ It ships as an installable **agent skill** (`SKILL.md`), runs strictly **read-on
 - **Well-Architected scoring** — per-pillar and fleet scores that are reproducible and hand-checkable, stable across runs.
 - **A self-contained HTML report** — per-cluster charts plus an AI-written assessment in which every number is verified against the collected data.
 
+## Prerequisites
+
+- **AWS Agent Toolkit — the [`amazon-elasticache` skill](https://github.com/aws/agent-toolkit-for-aws) (required).** The AI assistant driving this review loads it on demand for cost pricing, remediation, and per-cluster live diagnostics — this skill delegates all of those to it rather than reimplementing them.
+- **Python 3.9+** with `boto3` and `numpy` (`pip install -r requirements.txt`).
+- **AWS credentials** with the read-only permissions listed under [Required IAM Permissions](#required-iam-permissions).
+
 ## Architecture
 
+Three layers cooperate — this skill's deterministic scripts, the AI assistant that drives
+them, and the **AWS Agent Toolkit** the assistant reaches for when a task needs live pricing,
+remediation, or hands-on cluster access:
+
 ```
-Scripts (data + math):  discover → fetch metrics → compute statistics → check config
-                                                        │
+This skill (data + math):     discover → fetch metrics → compute statistics → check config
+                                                    │
                     inventory.json + metrics.json + analysis.json + config_findings.json
-                                                        │
-Agent (reasoning):      interpret → prioritize → recommend → present → remediate
+                                                    │
+AI assistant (reasoning):     interpret → prioritize → present → recommend
+                                                    │  loads / delegates to
+                                                    ▼
+AWS Agent Toolkit             cost pricing (price_calculator.py, serverless_estimator.py) ·
+(amazon-elasticache skill):   remediation playbooks (TLS / Valkey / Graviton migrations) ·
+                              per-cluster live diagnostics (slow-log, hot keys, big keys)
 ```
 
-**Scripts do:** Bulk API calls, pagination, millions of datapoints, numpy math, and every
-deterministic pass/fail check (TLS enabled, backups configured, replica count, required tags).
+**This skill's scripts do:** Bulk API calls, pagination, millions of datapoints, numpy math,
+and every deterministic pass/fail check (TLS enabled, backups configured, replica count,
+required tags).
 
-**Agent does:** Interpretation, prioritization, cost estimation, remediation commands,
-presentation, and conversational follow-up.
+**The AI assistant does:** Interpretation, prioritization, presentation, conversational
+follow-up — and orchestration: it decides *when* to call the toolkit and feeds it the
+findings and cluster details this skill produced.
+
+**The AWS Agent Toolkit (`amazon-elasticache`) does:** Everything that needs live data or
+write actions rather than a reproducible measurement — fetching current prices, generating
+remediation commands, and connecting to a cluster over an SSM tunnel for slow-log / hot-key /
+big-key inspection. It is a **required companion** (see Prerequisites); the assistant loads
+its sub-skills on demand.
 
 **Where the line sits, and why it matters:** any number a customer might act on is computed
 by a script and read by the agent, never estimated in prose. Severity comes from the check
@@ -48,19 +71,22 @@ published schedule with a staleness test; the pipeline makes no network calls.
 ```
 User: "Review my ElastiCache fleet in us-east-1"
   ↓
-Agent runs run_review.py → discovers clusters → collects 14 days of metrics
-                         → computes statistics → evaluates 16 configuration checks
+Assistant runs run_review.py → discovers clusters → collects 14 days of metrics
+                             → computes statistics → evaluates 16 configuration checks
   ↓
-Agent reads the four JSON outputs → applies WA knowledge → prioritizes findings
+Assistant reads the four JSON outputs → applies WA knowledge → prioritizes findings
+      └─ for dollar figures, loads the amazon-elasticache toolkit's price_calculator.py
+         / serverless_estimator.py (live rates never enter the reproducible pipeline)
   ↓
-Agent: "Your fleet scores 85/100 — Good, but staging-redis-legacy scores 63.
-        3 CRITICAL findings, all on that cluster: TLS disabled, no auth, and a
-        security group open to 0.0.0.0/0. Separately, prod-api-cache is
-        SATURATED — scale it before the next peak. Want me to generate fixes?"
+Assistant: "Your fleet scores 85/100 — Good, but staging-redis-legacy scores 63.
+            3 CRITICAL findings, all on that cluster: TLS disabled, no auth, and a
+            security group open to 0.0.0.0/0. Separately, prod-api-cache is
+            SATURATED — scale it before the next peak. Want me to generate fixes?"
   ↓
 User: "Fix the TLS issue"
   ↓
-Agent: [generates AWS CLI commands with the preferred→required migration explained]
+Assistant: follows the toolkit's amazon-elasticache migration playbook and presents
+           the AWS CLI commands, with the preferred→required TLS migration explained
 ```
 
 That example is the output for the offline example fleet, so you can reproduce it — see **Try

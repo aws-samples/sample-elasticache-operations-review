@@ -799,6 +799,11 @@ number is the one that needs action.
 
 ## Relationship to AWS Agent Toolkit (`amazon-elasticache` skill)
 
+The **AWS Agent Toolkit's `amazon-elasticache` skill is a required companion**
+(https://github.com/aws/agent-toolkit-for-aws). This skill delegates all live pricing,
+remediation, and per-cluster data-plane diagnostics to it — do not reimplement those.
+Retrieve it on demand as below.
+
 ### How to load the toolkit skill (retrieve it — do not look on local disk)
 
 The `amazon-elasticache` toolkit is **not part of this package and is not on the
