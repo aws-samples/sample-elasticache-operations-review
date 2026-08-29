@@ -1,0 +1,13 @@
+# Runtime dependencies. Minimum-version bounds are enough to run the pipeline.
+#
+# For a supply-chain-hardened install (recommended — see README "Security & Data
+# Handling"), generate a fully pinned, hash-verified lock file and install from it, so a
+# tampered or substituted package cannot run in place of the reviewed code:
+#
+#   pip install pip-tools
+#   pip-compile --generate-hashes -o requirements.lock.txt requirements.txt
+#   pip install --require-hashes -r requirements.lock.txt
+#
+# Regenerate the lock file whenever you intentionally bump a version.
+boto3>=1.34.0
+numpy>=1.24.0

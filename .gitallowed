@@ -1,0 +1,14 @@
+# git-secrets allowlist (repository root, read automatically by `git secrets`).
+#
+# These are AWS *documentation example* account IDs — not real accounts. The
+# project deliberately uses them as placeholders in tests, fixtures, and docs
+# (the no-private-data discipline scrubs any real id to 123456789012, the
+# canonical AWS example account). Allowing them here stops git-secrets flagging
+# the placeholders as if they were leaked credentials.
+#
+# Only specific known-fake IDs are listed — NOT a blanket [0-9]{12} — so a real
+# 12-digit account id would still be caught.
+123456789012
+111122223333
+670000000000
+549999999999

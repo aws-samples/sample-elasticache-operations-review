@@ -1,0 +1,59 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ElastiCacheReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "elasticache:DescribeReplicationGroups",
+        "elasticache:DescribeServerlessCaches",
+        "elasticache:DescribeCacheClusters",
+        "elasticache:DescribeCacheParameters",
+        "elasticache:DescribeCacheParameterGroups",
+        "elasticache:DescribeCacheSubnetGroups",
+        "elasticache:DescribeEvents",
+        "elasticache:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CloudWatch",
+      "Effect": "Allow",
+      "Action": [
+        "cloudwatch:GetMetricData",
+        "cloudwatch:ListMetrics",
+        "logs:FilterLogEvents",
+        "logs:DescribeLogGroups"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "Supporting",
+      "Effect": "Allow",
+      "Action": [
+        "ce:GetCostAndUsage",
+        "ec2:DescribeSecurityGroups",
+        "ec2:DescribeRegions",
+        "sts:GetCallerIdentity"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyAnyMutation",
+      "Effect": "Deny",
+      "NotAction": [
+        "elasticache:Describe*",
+        "elasticache:List*",
+        "cloudwatch:GetMetricData",
+        "cloudwatch:ListMetrics",
+        "logs:FilterLogEvents",
+        "logs:DescribeLogGroups",
+        "ce:GetCostAndUsage",
+        "ec2:DescribeSecurityGroups",
+        "ec2:DescribeRegions",
+        "sts:GetCallerIdentity"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

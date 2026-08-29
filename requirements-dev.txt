@@ -1,0 +1,9 @@
+# Development-only dependencies. NOT needed to run the review pipeline (that needs
+# only requirements.txt: boto3 + numpy). Install these to run the tests and linter:
+#
+#   pip install -r requirements.txt -r requirements-dev.txt
+#   ruff check scripts/ tests/     # lint (config in pyproject.toml)
+#   pytest tests/                  # tests
+#
+pytest>=7.0.0
+ruff>=0.6.0

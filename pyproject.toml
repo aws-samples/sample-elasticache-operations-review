@@ -1,0 +1,25 @@
+# Ruff configuration. The code style here was held by hand; this pins it so
+# contributors get the same checks locally and drift is caught, without imposing a
+# reformat on a working, reviewed codebase.
+#
+# Ruff is a dev-only tool: it is NOT a runtime dependency (the pipeline needs only
+# boto3 + numpy — see requirements.txt). Install it from requirements-dev.txt and run:
+#
+#   ruff check scripts/ tests/
+#
+[tool.ruff]
+# Generous, because a few data lines (the region billing-code map, CloudWatch
+# dimension tuples, long f-strings) read worse wrapped than long. E501 is not
+# enforced (see the ignore below); this mainly documents the intended width.
+line-length = 100
+
+[tool.ruff.lint]
+# High-signal, low-noise on purpose: real defects (pyflakes `F` — unused imports and
+# variables, undefined names), import ordering (`I`), and pycodestyle errors (`E`).
+# Deliberately NOT the stylistic/modernization families (UP, B, SIM, PERF, RUF): on a
+# hand-tuned codebase those flag ~200 deliberate patterns (e.g. the documented
+# blind-except in check_configuration's per-check dispatch, mutable dataclass
+# defaults) and would impose churn rather than match the existing conventions. A
+# later pass can widen this once the team decides to adopt those rules.
+select = ["E", "F", "I"]
+ignore = ["E501"]  # line-too-long — see the line-length note above

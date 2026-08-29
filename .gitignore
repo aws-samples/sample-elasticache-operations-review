@@ -1,0 +1,49 @@
+# Output reports
+output/
+sample_data/
+sample_report.html
+
+# Generated example fleet. Not committed: metrics.json is ~107 MB, above
+# GitHub's file size limit. Regenerate it with
+#   python3 scripts/make_example_fleet.py --output examples/
+# which is byte-for-byte reproducible from a fixed seed, so the generator serves
+# the same purpose as committed fixtures would. tests/test_example_fleet.py pins
+# that reproducibility.
+examples/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.pytest_cache/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Temp files
+*.tmp
+*.log
+
+# Kiro design specs — kept locally as reference, not shipped
+.kiro/
+
+# GitLab Probe security-scan exports (local triage only)
+probe/
+
+# Local MCP server config — internal endpoint, not for the public repo
+.mcp.json
+
+# Threat model working artifacts (STRIDE model + remediation notes). Generated
+# by the threat-modeling MCP server; kept locally for triage, not shipped.
+.threatmodel/
+
+# Local denylist of real account/cluster identifiers for the no-private-data
+# guard (tests/test_no_private_data.py). Untracked on purpose: it names real
+# values, so it must never ship. Absent on a fresh clone -> the guard skips.
+.private-identifiers
