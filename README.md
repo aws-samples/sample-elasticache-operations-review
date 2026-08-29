@@ -1,6 +1,16 @@
-# ElastiCache Operations Review — Agent Skill
+# Amazon ElastiCache Operations Review — AI Agent Skill for AWS Well-Architected Reviews
 
-An AI agent skill that assesses ElastiCache fleet health against AWS Well-Architected best practices. Scripts collect the data, compute the statistics, and evaluate the configuration checks. The AI agent handles interpretation, prioritization, cost estimation, remediation, and presentation.
+Review the health of an **Amazon ElastiCache** fleet — **Valkey, Redis OSS, and Memcached**, on both **serverless and node-based** clusters — against **AWS Well-Architected** best practices, and get a prioritized, shareable report. Deterministic Python scripts collect **Amazon CloudWatch** metrics and **AWS Cost Explorer** data and run mechanical configuration checks; an **AI agent** (for example, Claude Code) interprets the results — prioritizing findings, explaining root causes, estimating cost savings, and generating remediation guidance.
+
+It ships as an installable **agent skill** (`SKILL.md`), runs strictly **read-only**, and works **offline** against a bundled example fleet, so you can try it without an AWS account.
+
+## What it does
+
+- **Security & reliability posture** — TLS in transit, encryption at rest, authentication (RBAC / AUTH token), Multi-AZ, automatic failover, replicas per shard, backups, security-group exposure, and engine end-of-support (Redis OSS Extended Support).
+- **Performance analysis** — CPU / memory / network utilization, cache hit rate, evictions, replication lag, throttling, shard imbalance (hot-shard detection), and trend detection over 14 days of CloudWatch metrics.
+- **Cost optimization** — idle and over-provisioned detection, right-sizing, Graviton and Valkey migration savings, and serverless-fit analysis, grounded in Cost Explorer actuals.
+- **Well-Architected scoring** — per-pillar and fleet scores that are reproducible and hand-checkable, stable across runs.
+- **A self-contained HTML report** — per-cluster charts plus an AI-written assessment in which every number is verified against the collected data.
 
 ## Architecture
 
@@ -237,10 +247,46 @@ elasticache-op-review/
 │   ├── engine-support-lifecycle.md # Vendored engine EOL dates (SEC-06)
 │   ├── report-generation.md        # notes.json + pricing.json report mechanics
 │   └── iam-policy.json             # The read-only policy to attach
-├── tests/                          # 1131 tests
+├── tests/                          # 1135 tests
 ├── examples/                       # Generated example fleet (git-ignored)
 └── output/                         # Generated data (git-ignored)
 ```
+
+## FAQ
+
+**Does it modify my ElastiCache clusters?**
+No — it is strictly read-only. The scripts only call `Describe*` / `List*` /
+`GetMetricData` / `GetCostAndUsage`, and the recommended IAM policy adds an explicit
+`Deny` on every mutating action, so it cannot change your fleet even under an
+over-privileged profile (see [Required IAM Permissions](#required-iam-permissions)).
+
+**Which engines and deployment types are supported?**
+Valkey, Redis OSS, and Memcached — on both serverless and node-based (replication
+group) clusters.
+
+**Can I try it without an AWS account?**
+Yes. `python3 scripts/make_example_fleet.py --output examples/` generates a synthetic
+seven-cluster fleet and runs the real analysis over it, with no AWS calls.
+
+**Which AI agents can run it?**
+Any agent that loads a `SKILL.md`-format skill. Installation is documented for Claude
+Code (see [Installing the skill](#installing-the-skill-so-your-agent-discovers-it));
+Kiro, Amazon Q, and Strands can consume the same skill.
+
+**Is the analysis reproducible?**
+Yes. The scripts are deterministic, so two runs on the same data produce byte-identical
+numbers — only the AI's wording varies, never its figures. This makes week-over-week
+diffs meaningful.
+
+**How much does it cost to run?**
+Nothing beyond ordinary AWS API usage. CloudWatch `GetMetricData` and Cost Explorer
+`GetCostAndUsage` are billed per request; scope `--regions` and use `--skip-cost` to
+minimize. It makes no third-party network calls — engine end-of-support dates are
+vendored, not fetched.
+
+**What does it produce?**
+Four JSON artifacts (`inventory.json`, `metrics.json`, `analysis.json`,
+`config_findings.json`) and an optional self-contained HTML report.
 
 ## Why This Architecture?
 
