@@ -14,7 +14,7 @@ It ships as an installable **agent skill** (`SKILL.md`), runs strictly **read-on
 
 ## Prerequisites
 
-- **AWS Agent Toolkit — the [`amazon-elasticache` skill](https://github.com/aws/agent-toolkit-for-aws) (required).** The AI assistant driving this review loads it on demand for cost pricing, remediation, and per-cluster live diagnostics — this skill delegates all of those to it rather than reimplementing them.
+- **[AWS Agent Toolkit](https://github.com/aws/agent-toolkit-for-aws) — its `amazon-elasticache` skill (required).** The AI assistant driving this review loads that skill on demand for cost pricing, remediation, and per-cluster live diagnostics — this review delegates all of those to it rather than reimplementing them.
 - **Python 3.9+** with `boto3` and `numpy` (`pip install -r requirements.txt`).
 - **AWS credentials** with the read-only permissions listed under [Required IAM Permissions](#required-iam-permissions).
 
@@ -125,11 +125,23 @@ when a request matches its description; you can also invoke it explicitly with
 `/elasticache-operations-review`. Restart Claude Code, or wait for live change
 detection, after installing.
 
-**Other agents (Kiro, Amazon Q, Strands, …).** This is a standard `SKILL.md`-format
-skill — a directory whose `SKILL.md` carries `name:`/`description:` frontmatter. Place
-this directory wherever your agent discovers skills, or point the agent at `SKILL.md`
-directly; consult that tool's skill / agent-instructions documentation for the exact
-location, as the discovery path differs per tool.
+**Kiro** discovers skills under `~/.kiro/skills/<name>/SKILL.md` (global — every workspace)
+or `.kiro/skills/<name>/SKILL.md` (workspace-scoped; workspace wins on a name clash). It's
+the same folder-with-`SKILL.md` layout, so a symlink works here too:
+
+```bash
+# Global (available in every workspace) — run from the repo root:
+ln -s "$PWD" ~/.kiro/skills/elasticache-operations-review
+
+# — or workspace-scoped, from your project root:
+mkdir -p .kiro/skills
+ln -s "$PWD" .kiro/skills/elasticache-operations-review
+```
+
+**Other agents (Amazon Q, Strands, …).** This is a standard `SKILL.md`-format skill — a
+directory whose `SKILL.md` carries `name:`/`description:` frontmatter. Place it wherever
+your agent discovers skills, or point the agent at `SKILL.md` directly; consult that tool's
+skill / agent-instructions documentation for the exact location.
 
 ### Standalone CLI (Data Collection Only)
 
@@ -280,39 +292,52 @@ elasticache-op-review/
 
 ## FAQ
 
-**Does it modify my ElastiCache clusters?**
+### Does it modify my ElastiCache clusters?
+
 No — it is strictly read-only. The scripts only call `Describe*` / `List*` /
 `GetMetricData` / `GetCostAndUsage`, and the recommended IAM policy adds an explicit
 `Deny` on every mutating action, so it cannot change your fleet even under an
 over-privileged profile (see [Required IAM Permissions](#required-iam-permissions)).
 
-**Which engines and deployment types are supported?**
+### Which engines and deployment types are supported?
+
 Valkey and Redis OSS — on both serverless and node-based (replication group)
 clusters. Memcached is not covered: discovery enumerates replication groups and
 serverless caches, and the configuration checks assume Redis/Valkey semantics
 (RBAC/AUTH, Multi-AZ, replicas, backups).
 
-**Can I try it without an AWS account?**
+### Can I try it without an AWS account?
+
 Yes. `python3 scripts/make_example_fleet.py --output examples/` generates a synthetic
 seven-cluster fleet and runs the real analysis over it, with no AWS calls.
 
-**Which AI agents can run it?**
-Any agent that loads a `SKILL.md`-format skill. Installation is documented for Claude
-Code (see [Installing the skill](#installing-the-skill-so-your-agent-discovers-it));
-Kiro, Amazon Q, and Strands can consume the same skill.
+### Which AI agents can run it?
 
-**Is the analysis reproducible?**
+Any agent that loads a `SKILL.md`-format skill. Installation is documented for Claude
+Code and Kiro (see [Installing the skill](#installing-the-skill-so-your-agent-discovers-it));
+Amazon Q, Strands, and other agents can consume the same skill.
+
+### Do I need the AWS Agent Toolkit?
+
+Yes — the [AWS Agent Toolkit](https://github.com/aws/agent-toolkit-for-aws)'s
+`amazon-elasticache` skill is required. The assistant loads it for cost pricing,
+remediation, and per-cluster live diagnostics (see [Prerequisites](#prerequisites)).
+
+### Is the analysis reproducible?
+
 Yes. The scripts are deterministic, so two runs on the same data produce byte-identical
 numbers — only the AI's wording varies, never its figures. This makes week-over-week
 diffs meaningful.
 
-**How much does it cost to run?**
+### How much does it cost to run?
+
 Nothing beyond ordinary AWS API usage. CloudWatch `GetMetricData` and Cost Explorer
 `GetCostAndUsage` are billed per request; scope `--regions` and use `--skip-cost` to
 minimize. It makes no third-party network calls — engine end-of-support dates are
 vendored, not fetched.
 
-**What does it produce?**
+### What does it produce?
+
 Four JSON artifacts (`inventory.json`, `metrics.json`, `analysis.json`,
 `config_findings.json`) and an optional self-contained HTML report.
 
