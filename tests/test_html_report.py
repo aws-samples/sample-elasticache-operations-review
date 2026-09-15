@@ -52,17 +52,27 @@ STAMP = "2026-08-11 10:00 UTC"
 
 
 def _script(html):
-    """The report's single inline script block, unescaped."""
-    # re.I so <SCRIPT> matches too: the tag is case-insensitive in HTML, and a
-    # case-only miss would make this helper silently find zero blocks (CodeQL
-    # py/bad-tag-filter). The generator emits lowercase <script>, so this only
-    # widens the match, never changes the count on real output.
-    blocks = re.findall(r"<script>(.*?)</script>", html, re.S | re.I)
-    assert len(blocks) == 1, (
-        f"expected one inline script block, found {len(blocks)}; the callers "
-        "here assume one and would silently check the wrong thing")
+    """The report's single inline script block, unescaped.
+
+    Located by string slicing rather than a regex on purpose: parsing HTML with
+    a regex is the CodeQL py/bad-tag-filter anti-pattern (a `</script>` pattern
+    misses corner cases like `</script foo="bar">`). We only need our own single
+    known block, so we find the exact literal tags the generator emits.
+    """
+    open_tag, close_tag = "<script>", "</script>"
+    # Assert on the OPEN tag only: it appears exactly once (there is one inline
+    # block), which is the same invariant the old non-greedy regex relied on. The
+    # close tag can appear more than once (the block's own JS may contain the
+    # literal "</script>" in a string), so we take the FIRST close after the
+    # open -- exactly what `<script>(.*?)</script>` matched.
+    assert html.count(open_tag) == 1, (
+        f"expected one inline script block, found {html.count(open_tag)} open "
+        "tags; the callers here assume one and would silently check the wrong "
+        "thing")
+    start = html.index(open_tag) + len(open_tag)
+    end = html.index(close_tag, start)
     # render() escapes </ so the payload cannot close the tag early.
-    return blocks[0].replace("<\\/", "</")
+    return html[start:end].replace("<\\/", "</")
 
 
 def _strip_comments(script):
