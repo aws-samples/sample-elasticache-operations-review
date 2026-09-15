@@ -53,7 +53,11 @@ STAMP = "2026-08-11 10:00 UTC"
 
 def _script(html):
     """The report's single inline script block, unescaped."""
-    blocks = re.findall(r"<script>(.*?)</script>", html, re.S)
+    # re.I so <SCRIPT> matches too: the tag is case-insensitive in HTML, and a
+    # case-only miss would make this helper silently find zero blocks (CodeQL
+    # py/bad-tag-filter). The generator emits lowercase <script>, so this only
+    # widens the match, never changes the count on real output.
+    blocks = re.findall(r"<script>(.*?)</script>", html, re.S | re.I)
     assert len(blocks) == 1, (
         f"expected one inline script block, found {len(blocks)}; the callers "
         "here assume one and would silently check the wrong thing")
