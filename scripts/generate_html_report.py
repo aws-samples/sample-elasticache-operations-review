@@ -2099,9 +2099,14 @@ TEMPLATE = """<!DOCTYPE html>
   .panel-body { padding: 0 18px 16px; }
   .panel-body .desc { color: var(--text-secondary); font-size: 13px; margin: 0 0 14px; }
   .panel-grid {
-    display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(460px, 1fr));
     gap: 18px 22px;
   }
+  /* Charts are authored at 980px wide. Three columns squeezed them to ~320px
+     (a 0.33x downscale that made axis labels illegible), so secondary groups
+     render 2-up (~485px) and the "Key metrics" hero group spans the full width
+     (~996px, near authoring size). */
+  .panel-grid--wide { grid-template-columns: 1fr; }
   .panel-chart h4 {
     margin: 0 0 2px; font-size: 13px; font-weight: 600;
     display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
@@ -2712,7 +2717,13 @@ TEMPLATE = """<!DOCTYPE html>
     gauge.className = "gauge";
     const S = 120, cx = S / 2, cy = S / 2, r = 48, sw = 12;
     const C = 2 * Math.PI * r;
-    const svg = svgRoot(gauge, S, S);
+    // Taller viewBox than the ring is wide: the ring's outer edge reaches
+    // y = cy + r + sw/2 = 114, so a square 120 box leaves no room for the
+    // caption below it and the text collides with the bottom stroke. The extra
+    // height lands entirely under the ring (which stays centred at cy) and
+    // preserveAspectRatio letterboxes cleanly, so the ring does not shrink.
+    const H = 134;
+    const svg = svgRoot(gauge, S, H);
     svg.setAttribute("aria-label",
       (opts.caption || "Overall") + " score " + fmt(scoreObj.overall, 0) +
       " of 100, " + scoreObj.band);
@@ -2732,7 +2743,7 @@ TEMPLATE = """<!DOCTYPE html>
                     "font-size": 10.5, class: "g-band"}, svg);
     band.textContent = scoreObj.band;
     if (opts.caption) {
-      const cap = el("text", {x: cx, y: S - 3, "text-anchor": "middle",
+      const cap = el("text", {x: cx, y: H - 5, "text-anchor": "middle",
                      "font-size": 10, class: "g-cap"}, svg);
       cap.textContent = opts.caption;
     }
@@ -3329,7 +3340,8 @@ TEMPLATE = """<!DOCTYPE html>
         body.appendChild(gt);
 
         const grid = document.createElement("div");
-        grid.className = "panel-grid";
+        grid.className = "panel-grid" +
+          (group.name === "Key metrics" ? " panel-grid--wide" : "");
         group.charts.forEach(function (chart) {
           const box = document.createElement("div");
           box.className = "panel-chart";
