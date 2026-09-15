@@ -3750,38 +3750,6 @@ TEMPLATE = """<!DOCTYPE html>
     document.getElementById("priorities").appendChild(box);
   }
 
-  // Coverage ledger — every fleet-wide (systemic) finding and whether the AI
-  // review accounted for it. The render fails when one is unaddressed, so each
-  // row reads "addressed"; showing the set is what makes completeness auditable
-  // rather than merely asserted, and answers "did the review consider the
-  // recurring low-severity issues, or only the loud ones?".
-  if (NOTES && NOTES.coverage && NOTES.coverage.length) {
-    const box = document.createElement("div");
-    box.className = "analyst";
-    const attrib = document.createElement("p");
-    attrib.className = "attrib";
-    attrib.textContent = "Review coverage \\u2014 findings that recur across a " +
-      "majority of the fleet. Each must be accounted for in the AI review, so " +
-      "a systemic issue cannot be silently dropped.";
-    box.appendChild(attrib);
-    const ul = document.createElement("ul");
-    ul.className = "coverage";
-    NOTES.coverage.forEach(function (c) {
-      const li = document.createElement("li");
-      const mark = document.createElement("strong");
-      mark.textContent = c.addressed ? "\\u2713 " : "\\u2717 ";
-      li.appendChild(mark);
-      const parts = [c.label];
-      if (c.severity) parts.push(c.severity);
-      parts.push("on " + c.cluster_count + " clusters");
-      if (c.verdict) parts.push("verdict: " + c.verdict);
-      li.appendChild(document.createTextNode(parts.join(" \\u00b7 ")));
-      ul.appendChild(li);
-    });
-    box.appendChild(ul);
-    document.getElementById("priorities").appendChild(box);
-  }
-
   // Actions — derived from each cluster's classification and findings, so the
   // prose cannot drift from the data. Nothing here asserts a fleet-wide condition
   // (e.g. "all clusters are idle"): a decommission line names only the IDLE
@@ -3933,6 +3901,36 @@ TEMPLATE = """<!DOCTYPE html>
     caveats.appendChild(li);
   });
   method.appendChild(caveats);
+
+  // Review-coverage ledger — a Method fact, not a finding: it records that the
+  // AI review accounted for every systemic (fleet-wide) finding, since the
+  // render fails otherwise. Demoted here (collapsed) rather than sitting beside
+  // the prioritized actions, where it read as process noise competing with real
+  // findings; a reader auditing completeness opens it, everyone else skims past.
+  if (NOTES && NOTES.coverage && NOTES.coverage.length) {
+    const det = document.createElement("details");
+    det.className = "coverage-ledger";
+    const sum = document.createElement("summary");
+    sum.textContent = "Review coverage \\u2014 " + NOTES.coverage.length +
+      " fleet-wide findings, each accounted for in the AI review";
+    det.appendChild(sum);
+    const ul = document.createElement("ul");
+    ul.className = "tight";
+    NOTES.coverage.forEach(function (c) {
+      const li = document.createElement("li");
+      const mark = document.createElement("strong");
+      mark.textContent = c.addressed ? "\\u2713 " : "\\u2717 ";
+      li.appendChild(mark);
+      const parts = [c.label];
+      if (c.severity) parts.push(c.severity);
+      parts.push("on " + c.cluster_count + " clusters");
+      if (c.verdict) parts.push("verdict: " + c.verdict);
+      li.appendChild(document.createTextNode(parts.join(" \\u00b7 ")));
+      ul.appendChild(li);
+    });
+    det.appendChild(ul);
+    method.appendChild(det);
+  }
 
   document.getElementById("footer").textContent =
     "Generated " + M.generated + " by the elasticache-operations-review skill \\u00b7 " +
