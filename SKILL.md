@@ -334,6 +334,21 @@ the renderer checks every figure in your prose against the data you cite, so a f
 number fails the render rather than shipping. Your wording may vary run to run (that
 is fine); your *claims* may not, and the data sections stay byte-identical regardless.
 
+**Account for every fleet-wide finding — the render enforces this.** A finding that
+recurs across a majority of the fleet is *systemic*: the same problem on most clusters,
+not a one-off. It is precisely the kind of finding a top-severity summary drops silently
+— an individually LOW note such as **COST-01 (engine is Redis OSS rather than Valkey)**
+repeated on every cluster is a real modernization recommendation, but reads as noise one
+row at a time. The renderer now **fails** if any fleet-wide finding has no `finding_note`
+accounting for it, exactly as a fabricated figure fails. So for each systemic finding,
+write one `finding_note` (a `verdict` — `confirmed` / `needs_data` / `false_positive` —
+plus `reasoning`); one note covers the whole pattern across its clusters. You may still,
+and should, feature it in `priorities` if it matters — but the `finding_note` is what
+discharges the obligation. Deprioritizing a systemic finding on a non-production or idle
+fleet is legitimate; doing it *silently* is not. The report renders a **Review coverage**
+ledger listing every systemic finding and its verdict, so the reader can see the review
+weighed all of them, not only the loud ones.
+
 ### Step 5: Handle Follow-Up
 
 | User Asks | How to Answer |

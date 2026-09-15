@@ -47,6 +47,13 @@ a silent omission:
   than 250 distinct numbers is rejected as too broad to check.
 - **`finding_id` must exist.** A note naming an unknown id fails rather than
   quietly annotating nothing.
+- **Every fleet-wide finding must be accounted for.** A finding that fires on a
+  majority of the fleet is systemic; it must have at least one `finding_note`
+  (verdict + reasoning), or the render fails naming it. One note covers the whole
+  pattern across its clusters. This is the completeness half of the contract: it
+  stops a recurring low-severity finding (e.g. COST-01, Redis→Valkey on every
+  cluster) from being silently dropped from the review. The report shows a
+  **Review coverage** ledger of every systemic finding and its verdict.
 
 A `false_positive` verdict does not delete the row — it renders struck through
 with your reasoning beside it, because deleting it would hide a pipeline bug

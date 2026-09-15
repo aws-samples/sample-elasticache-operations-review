@@ -39,6 +39,7 @@ import datetime
 import html
 import json
 import logging
+import math
 import os
 import re
 import sys
@@ -218,6 +219,21 @@ def _region_for_billing_code(usage_type: str) -> str | None:
 # fleet, which is the line worth drawing: a claim about one cluster is checkable
 # against that cluster.
 MAX_CITE_NUMBERS = 250
+
+# Coverage invariant (the "no silent drop" rule). A finding that fires on this
+# fraction of the fleet or more is a *systemic* finding: the same problem on a
+# majority of clusters, not a one-off. Those are exactly the findings an agent's
+# top-severity triage drops silently -- an individually LOW note (e.g. "engine is
+# Redis OSS rather than Valkey", COST-01) repeated across every cluster is a real
+# fleet-wide recommendation, but reads as noise one row at a time. So a
+# fleet-wide finding must be explicitly accounted for in the notes (a
+# finding_note verdict + reasoning) or the render fails, the same way a
+# fabricated figure fails. This is the completeness half of the notes contract;
+# no-new-numbers is the other half. It does NOT require a note for every
+# finding -- a lone high-severity finding is already what the assessment leads
+# with; the enforced floor is the systemic pattern, which is the auditable case
+# and the one that was actually being lost.
+FLEET_PATTERN_FRACTION = 0.5
 
 # Documents a cite may resolve against. Raw metrics.json is deliberately absent.
 #
@@ -543,7 +559,146 @@ def _notes_blocks(notes: dict) -> list:
 VERDICTS = ("confirmed", "false_positive", "needs_data")
 
 
-def _build_notes(notes: dict | None, findings: list) -> dict | None:
+def _pattern_key(finding: dict) -> str:
+    """The identity a finding shares with the same problem on another cluster.
+
+    A configuration check has a stable ``check_id`` (COST-01 is COST-01 on every
+    cluster). Metric findings have no check id, so they group by title -- which
+    means two metric findings only count as the same pattern when their titles
+    match verbatim. That is deliberately strict: a title that embeds the node
+    type or a per-cluster value will not collapse, so only genuinely identical
+    findings form a fleet-wide pattern.
+    """
+    return finding.get("check_id") or finding.get("title") or ""
+
+
+def fleet_wide_patterns(findings: list, n_clusters: int) -> dict:
+    """Findings that recur across a majority of the fleet, grouped by pattern.
+
+    A single-cluster fleet has no fleet-wide pattern by definition (a threshold
+    of one would make every finding "systemic"), so this returns empty when
+    ``n_clusters < 2``.
+
+    Returns:
+        ``{pattern_key: {check_id, title, severity, clusters, finding_ids}}``
+        for each pattern firing on at least ``ceil(FLEET_PATTERN_FRACTION *
+        n_clusters)`` distinct clusters (floored at 2). ``severity`` is the
+        worst the pattern reaches; ``clusters``/``finding_ids`` are sorted for
+        deterministic output.
+    """
+    if n_clusters < 2:
+        return {}
+    groups: dict = {}
+    for f in findings:
+        key = _pattern_key(f)
+        if not key:
+            continue
+        g = groups.setdefault(key, {
+            "check_id": f.get("check_id"),
+            "title": f.get("title"),
+            "rank": 9,
+            "severity": None,
+            "clusters": set(),
+            "finding_ids": set(),
+        })
+        g["clusters"].add(f.get("cluster"))
+        if f.get("finding_id"):
+            g["finding_ids"].add(f["finding_id"])
+        r = _SEVERITY_RANK.get(f.get("severity"), 9)
+        if r < g["rank"]:
+            g["rank"] = r
+            g["severity"] = f.get("severity")
+    threshold = max(2, math.ceil(FLEET_PATTERN_FRACTION * n_clusters))
+    material = {}
+    for key, g in groups.items():
+        if len(g["clusters"]) >= threshold:
+            g["clusters"] = sorted(c for c in g["clusters"] if c)
+            g["finding_ids"] = sorted(g["finding_ids"])
+            material[key] = g
+    return material
+
+
+def _pattern_addressed(pattern: dict, noted_ids: set) -> bool:
+    """A pattern is accounted for if any of its findings carries an agent note.
+
+    One note covers the whole pattern -- the agent writes a single verdict for
+    "engine is Redis OSS across the fleet", not one per cluster. The note is the
+    accounting channel; featuring the pattern in the priorities as well is
+    encouraged but not what this checks, because prose mention cannot be
+    verified mechanically the way a finding_id match can.
+    """
+    return any(fid in noted_ids for fid in pattern["finding_ids"])
+
+
+def notes_with_reasoning(notes: dict) -> set:
+    """finding_ids the agent actually wrote a reasoned note for.
+
+    A finding_note with an empty ``reasoning`` is not accounting for anything,
+    so it does not count toward coverage.
+    """
+    return {
+        note.get("finding_id")
+        for note in (notes.get("finding_notes") or [])
+        if note.get("finding_id") and (note.get("reasoning") or "").strip()
+    }
+
+
+def verify_coverage(notes: dict, findings: list, n_clusters: int) -> list:
+    """Fail the render when a fleet-wide finding is left unaccounted for.
+
+    The completeness half of the notes contract. ``verify_notes`` stops the
+    agent inventing numbers; this stops the agent silently dropping a systemic
+    finding from its review. A fleet-wide pattern (see ``fleet_wide_patterns``)
+    must have at least one finding_note with reasoning, or this raises.
+
+    Returns:
+        The coverage ledger: one row per fleet-wide pattern, in worst-severity
+        then key order, each marked ``addressed`` true/false with the agent's
+        verdict when present. Returned even when everything passes, so the
+        report can show a reader that every systemic finding got a call.
+
+    Raises:
+        NotesError: Naming every unaddressed fleet-wide pattern.
+    """
+    patterns = fleet_wide_patterns(findings, n_clusters)
+    noted_ids = notes_with_reasoning(notes)
+    verdict_by_id = {
+        note.get("finding_id"): note.get("verdict")
+        for note in (notes.get("finding_notes") or [])
+    }
+    ledger = []
+    unaddressed = []
+    for key, p in sorted(patterns.items(),
+                         key=lambda kv: (kv[1]["rank"], kv[0])):
+        addressed = _pattern_addressed(p, noted_ids)
+        verdict = next((verdict_by_id.get(fid) for fid in p["finding_ids"]
+                        if fid in noted_ids), None)
+        ledger.append({
+            "label": p["check_id"] or p["title"],
+            "title": p["title"],
+            "severity": p["severity"],
+            "cluster_count": len(p["clusters"]),
+            "addressed": addressed,
+            "verdict": verdict,
+        })
+        if not addressed:
+            unaddressed.append(
+                f"{p['check_id'] or p['title']!r} "
+                f"({p['severity']}) fires on {len(p['clusters'])} of "
+                f"{n_clusters} clusters but no finding_note accounts for it. A "
+                f"finding that recurs across the fleet is a systemic "
+                f"recommendation; add a finding_note (verdict + reasoning) on "
+                f"one of its findings, or address it in the priorities and note "
+                f"it, so it is not silently dropped from the review.")
+    if unaddressed:
+        raise NotesError(
+            "notes.json leaves fleet-wide findings unaccounted for:\n  - "
+            + "\n  - ".join(unaddressed))
+    return ledger
+
+
+def _build_notes(notes: dict | None, findings: list,
+                 coverage: list | None = None) -> dict | None:
     """Attach agent notes to the findings and shape them for the renderer.
 
     Mutates each matching finding row with `verdict` and `note`, so the
@@ -602,6 +757,12 @@ def _build_notes(notes: dict | None, findings: list) -> dict | None:
         # 48, and the table looks identical either way.
         "annotated": annotated,
         "findings_total": len(findings),
+        # Coverage ledger: one row per fleet-wide (systemic) finding, each shown
+        # as addressed by the analyst or not. Present so a reader can see the
+        # review accounted for every systemic finding -- the render would have
+        # failed otherwise, so every row here reads "addressed", but showing the
+        # set is what makes that auditable rather than asserted.
+        "coverage": coverage or [],
     }
 
 
@@ -1853,6 +2014,7 @@ def build_payload(inventory: dict, metrics: dict | None, analysis: dict,
     # Verified before it is shaped, and against this function's own findings
     # list. A note may only cite the documents this report was built from --
     # pricing.json included, so a savings figure can be cited in the assessment.
+    coverage = None
     if notes:
         verify_notes(
             notes,
@@ -1861,9 +2023,15 @@ def build_payload(inventory: dict, metrics: dict | None, analysis: dict,
             known_finding_ids=[f["finding_id"] for f in findings
                                if f.get("finding_id")],
         )
+        # Completeness half of the contract: a systemic (fleet-wide) finding may
+        # not be silently dropped from the review. Raises here -- like the
+        # figure check above -- so no code path can embed a review that quietly
+        # ignored a fleet-wide recommendation. The ledger it returns is shown in
+        # the report so a reader can see every systemic finding got a call.
+        coverage = verify_coverage(notes, findings, len(clusters_inv))
     # After the sort, so annotations attach to the rows in their final order.
     # _build_notes writes verdict/note onto the rows themselves.
-    notes_section = _build_notes(notes, findings)
+    notes_section = _build_notes(notes, findings, coverage)
 
     meta = report_data.get("metadata") or {}
     inv_meta = inventory.get("metadata", {})
@@ -3579,6 +3747,38 @@ TEMPLATE = """<!DOCTYPE html>
       ol.appendChild(li);
     });
     box.appendChild(ol);
+    document.getElementById("priorities").appendChild(box);
+  }
+
+  // Coverage ledger — every fleet-wide (systemic) finding and whether the AI
+  // review accounted for it. The render fails when one is unaddressed, so each
+  // row reads "addressed"; showing the set is what makes completeness auditable
+  // rather than merely asserted, and answers "did the review consider the
+  // recurring low-severity issues, or only the loud ones?".
+  if (NOTES && NOTES.coverage && NOTES.coverage.length) {
+    const box = document.createElement("div");
+    box.className = "analyst";
+    const attrib = document.createElement("p");
+    attrib.className = "attrib";
+    attrib.textContent = "Review coverage \\u2014 findings that recur across a " +
+      "majority of the fleet. Each must be accounted for in the AI review, so " +
+      "a systemic issue cannot be silently dropped.";
+    box.appendChild(attrib);
+    const ul = document.createElement("ul");
+    ul.className = "coverage";
+    NOTES.coverage.forEach(function (c) {
+      const li = document.createElement("li");
+      const mark = document.createElement("strong");
+      mark.textContent = c.addressed ? "\\u2713 " : "\\u2717 ";
+      li.appendChild(mark);
+      const parts = [c.label];
+      if (c.severity) parts.push(c.severity);
+      parts.push("on " + c.cluster_count + " clusters");
+      if (c.verdict) parts.push("verdict: " + c.verdict);
+      li.appendChild(document.createTextNode(parts.join(" \\u00b7 ")));
+      ul.appendChild(li);
+    });
+    box.appendChild(ul);
     document.getElementById("priorities").appendChild(box);
   }
 

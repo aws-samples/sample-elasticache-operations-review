@@ -40,9 +40,11 @@ from generate_html_report import (  # noqa: E402
     build_report_data,
     cluster_series,
     downsample,
+    fleet_wide_patterns,
     main,
     prose_figures,
     render,
+    verify_coverage,
     verify_notes,
 )
 
@@ -1695,6 +1697,133 @@ def _multi_analysis(cluster_ids, classifications=None, findings=None,
             "errors": [],
         } for cid in cluster_ids},
     }
+
+
+def _fleet_wide_config(cluster_ids, check_id="COST-01", severity="LOW",
+                       title="Engine is Redis OSS rather than Valkey"):
+    """config_findings.json where one check fires on every cluster.
+
+    Models the real Valkey case: an individually LOW finding repeated across the
+    whole fleet, which is exactly what top-severity triage drops silently.
+    """
+    return {"clusters": {cid: {"cluster_type": "node-based", "findings": [{
+        "severity": severity,
+        "finding_id": f"config-{cid}-{check_id.lower()}",
+        "title": title,
+        "description": "The engine is Redis OSS.",
+        "recommendation": "Migrate to Valkey.",
+        "check_id": check_id,
+        "pillar": "Cost Optimization",
+        "metric_name": None,
+        "current_value": "redis",
+    }]} for cid in cluster_ids}}
+
+
+class TestFleetWideCoverage:
+    """A systemic finding may not be silently dropped from the AI review.
+
+    The completeness half of the notes contract, symmetric to no-new-numbers:
+    verify_notes stops the agent inventing figures; verify_coverage stops it
+    ignoring a finding that recurs across the fleet. This is the fix for the
+    real defect where COST-01 (Redis -> Valkey) fired on all three clusters yet
+    never surfaced in either AI-generated section.
+    """
+
+    IDS = ["c-a", "c-b", "c-c"]
+
+    def _payload(self, notes, ids=None, cfg=None):
+        ids = ids or self.IDS
+        return build_payload(
+            _multi_inventory(ids),
+            _multi_metrics({cid: 1.0 for cid in ids}),
+            _multi_analysis(ids), STAMP,
+            cfg if cfg is not None else _fleet_wide_config(ids),
+            notes)
+
+    def _clean_notes(self, **over):
+        # An assessment with no figures and no cites passes verify_notes, so a
+        # failure can only come from the coverage check.
+        base = {"assessment": {"prose": "Fleet review.", "cites": []},
+                "context": {"environment": "non-prod", "source": "user"},
+                "finding_notes": [], "priorities": []}
+        base.update(over)
+        return base
+
+    def test_an_unaddressed_fleet_wide_finding_fails_the_render(self):
+        with pytest.raises(NotesError, match="fleet-wide"):
+            self._payload(self._clean_notes())
+
+    def test_the_error_names_the_pattern_and_its_reach(self):
+        with pytest.raises(NotesError, match=r"COST-01.*3 of 3"):
+            self._payload(self._clean_notes())
+
+    def test_one_note_on_the_pattern_satisfies_it(self):
+        notes = self._clean_notes(finding_notes=[{
+            "finding_id": "config-c-a-cost-01", "verdict": "needs_data",
+            "reasoning": "Non-production; migration deferred.", "cites": []}])
+        p = self._payload(notes)  # does not raise
+        cov = {c["label"]: c for c in p["notes"]["coverage"]}
+        assert cov["COST-01"]["addressed"] is True
+        assert cov["COST-01"]["verdict"] == "needs_data"
+        assert cov["COST-01"]["cluster_count"] == 3
+
+    def test_a_note_with_empty_reasoning_does_not_count(self):
+        # Guards the guard: an empty finding_note is not accounting for anything.
+        notes = self._clean_notes(finding_notes=[{
+            "finding_id": "config-c-a-cost-01", "verdict": "confirmed",
+            "reasoning": "   ", "cites": []}])
+        with pytest.raises(NotesError, match="fleet-wide"):
+            self._payload(notes)
+
+    def test_a_single_cluster_fleet_has_no_fleet_wide_pattern(self):
+        # The scope is systemic patterns, not every finding: a one-cluster fleet
+        # requires no coverage note. This is why the single-cluster note tests
+        # were unaffected by the invariant.
+        self._payload(self._clean_notes(), ids=["only"],
+                      cfg=_fleet_wide_config(["only"]))  # does not raise
+
+    def test_a_minority_finding_is_not_required(self):
+        # COST-01 on 1 of 3 clusters is not systemic, so no note is required.
+        cfg = _fleet_wide_config(["c-a"])
+        cfg["clusters"]["c-b"] = {"cluster_type": "node-based", "findings": []}
+        cfg["clusters"]["c-c"] = {"cluster_type": "node-based", "findings": []}
+        self._payload(self._clean_notes(), cfg=cfg)  # does not raise
+
+    def test_the_ledger_reaches_the_rendered_document(self):
+        notes = self._clean_notes(finding_notes=[{
+            "finding_id": "config-c-a-cost-01", "verdict": "confirmed",
+            "reasoning": "Real across the fleet.", "cites": []}])
+        html = render(self._payload(notes))
+        assert "Review coverage" in html
+
+    def test_fleet_wide_patterns_thresholds_on_a_majority(self):
+        findings = [
+            {"cluster": "a", "check_id": "X", "title": "x", "severity": "LOW",
+             "finding_id": "a-x"},
+            {"cluster": "b", "check_id": "X", "title": "x", "severity": "LOW",
+             "finding_id": "b-x"},
+            {"cluster": "a", "check_id": "Y", "title": "y", "severity": "HIGH",
+             "finding_id": "a-y"},
+        ]
+        # 4-cluster fleet: X on 2 of 4 is below the majority of 2? ceil(0.5*4)=2,
+        # so 2 qualifies; Y on 1 does not.
+        pats = fleet_wide_patterns(findings, 4)
+        assert set(pats) == {"X"}
+        assert pats["X"]["clusters"] == ["a", "b"]
+
+    def test_verify_coverage_returns_a_ledger_when_it_passes(self):
+        findings = [
+            {"cluster": "a", "check_id": "X", "title": "x", "severity": "LOW",
+             "finding_id": "a-x"},
+            {"cluster": "b", "check_id": "X", "title": "x", "severity": "LOW",
+             "finding_id": "b-x"},
+        ]
+        notes = {"finding_notes": [{"finding_id": "a-x", "verdict": "confirmed",
+                                    "reasoning": "systemic."}]}
+        ledger = verify_coverage(notes, findings, 2)
+        assert ledger == [{"label": "X", "title": "x", "severity": "LOW",
+                           "cluster_count": 2, "addressed": True,
+                           "verdict": "confirmed"}]
 
 
 class TestPanelCharacterizationLabels:
